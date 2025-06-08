@@ -1975,7 +1975,20 @@
                     return;
                 }
                 
-                if (existingPlant && !(plantType.isGround && !existingPlant.isGround) && !(plantType.isShell && !existingPlant.isShell)) return;
+                // Allow pumpkin shells to be placed over other plants, and ground plants over non-ground plants
+                if (existingPlant) {
+                    // Block placement if trying to place non-shell over existing plant, 
+                    // or if trying to place non-ground over existing ground plant
+                    if (!plantType.isShell && !plantType.isGround) {
+                        return; // Regular plants can't be placed over other plants
+                    }
+                    if (plantType.isGround && existingPlant.isGround) {
+                        return; // Can't place ground plant over another ground plant
+                    }
+                    if (plantType.isShell && existingPlant.isShell) {
+                        return; // Can't place shell over another shell
+                    }
+                }
                 
                 this.sun -= plantType.cost;
                 this.updateUI();
@@ -1995,10 +2008,22 @@
                     lastFreeze: 0,
                     lastMagnet: 0,
                     isGround: plantType.isGround || false,
+                    isShell: plantType.isShell || false,
                     element: this.createPlantElement(levelStats.emoji, level, cell)
                 };
                 
-                this.plants.set(key, plant);
+                // For pumpkin shells, store as shell but don't replace existing plant
+                if (plantType.isShell && existingPlant) {
+                    // Store shell separately and don't overwrite the main plant
+                    const shellKey = `${row},${col}_shell`;
+                    this.plants.set(shellKey, plant);
+                    
+                    // Add visual shell effect to existing plant
+                    existingPlant.shell = plant;
+                    existingPlant.element.style.border = '3px solid #FF8C00';
+                } else {
+                    this.plants.set(key, plant);
+                }
                 
                 if (this.selectedPlant === 'cherrybomb') {
                     this.soundEngine.cherryBombFuse();
@@ -2294,12 +2319,13 @@
                     }
                     
                     if (plant.type === 'chomper' && !plant.chewing) {
-                        const zombie = this.zombies.find(z => 
-                            z.row === plant.row && 
-                            Math.abs(z.x - (plant.col * (window.innerWidth - 40) / 9)) < 50
-                        );
-                        if (zombie && !zombie.isBoss) {
-                            this.chomperEat(plant, zombie, levelStats.chewTime);
+                        const zombiesInRange = this.zombies.filter(z => {
+                            const zombieCol = Math.floor((z.x - 20) / ((window.innerWidth - 40) / 9));
+                            return z.row === plant.row && zombieCol === plant.col;
+                        });
+                        
+                        if (zombiesInRange.length > 0 && !zombiesInRange[0].isBoss) {
+                            this.chomperEat(plant, zombiesInRange[0], levelStats.chewTime);
                         }
                     }
                 });
@@ -2368,14 +2394,20 @@
                     const col = Math.floor((zombie.x - 20) / ((window.innerWidth - 40) / 9));
                     const plantKey = `${zombie.row},${col}`;
                     const plant = this.plants.get(plantKey);
+                    const shellKey = `${zombie.row},${col}_shell`;
+                    const shell = this.plants.get(shellKey);
                     
                     if (plant && zombie.flying && plant.isGround) {
                         return;
                     }
                     
-                    if (plant && !zombie.eating && !plant.isGround) {
+                    // Prioritize attacking shell if it exists, otherwise attack main plant
+                    const targetPlant = shell || plant;
+                    
+                    if (targetPlant && !zombie.eating && !targetPlant.isGround) {
                         zombie.eating = true;
-                        zombie.target = plant;
+                        zombie.target = targetPlant;
+                        zombie.targetKey = shell ? shellKey : plantKey;
                     }
                     
                     if (zombie.eating && zombie.target) {
@@ -2388,9 +2420,20 @@
                         zombie.target.health -= damage;
                         if (zombie.target.health <= 0) {
                             zombie.target.element.remove();
-                            this.plants.delete(plantKey);
+                            this.plants.delete(zombie.targetKey);
+                            
+                            // If shell was destroyed, remove shell reference from main plant
+                            if (zombie.targetKey.includes('_shell')) {
+                                const mainPlant = this.plants.get(plantKey);
+                                if (mainPlant && mainPlant.shell) {
+                                    mainPlant.shell = null;
+                                    mainPlant.element.style.border = '';
+                                }
+                            }
+                            
                             zombie.eating = false;
                             zombie.target = null;
+                            zombie.targetKey = null;
                             
                             if (zombie.type === 'gargantuar' && zombie.health < zombie.maxHealth * 0.5 && !zombie.threwImp) {
                                 this.spawnImp(zombie.row);
@@ -2871,14 +2914,20 @@
                 this.zombies.splice(zombieIndex, 1);
                 this.score += 10;
                 
-                // Show chomper is chewing
-                plant.element.style.filter = 'hue-rotate(90deg)';
+                // Show chomper is chewing with visual effect
+                plant.element.style.filter = 'hue-rotate(90deg) brightness(1.2)';
+                plant.element.style.transform = 'scale(1.1)';
                 this.soundEngine.createTone(150, 0.5, 'sawtooth', 0.2);
+                
+                // Show eating indicator
+                const cell = document.querySelector(`[data-row="${plant.row}"][data-col="${plant.col}"]`);
+                this.showUpgradeIndicator(cell, 'CHOMPING!');
                 
                 setTimeout(() => {
                     plant.chewing = false;
                     plant.target = null;
                     plant.element.style.filter = '';
+                    plant.element.style.transform = '';
                 }, chewTime);
             }
         }
