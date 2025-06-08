@@ -907,10 +907,6 @@
                     ⚡
                     <div class="cost">175</div>
                 </div>
-                <div class="plant-card" data-plant="pumpkin">
-                    🎃
-                    <div class="cost">75</div>
-                </div>
             </div>
             <div class="stats">
                 <div>Sun: <span id="sun">150</span></div>
@@ -1139,8 +1135,7 @@
                     potatomine: "Underground explosive that detonates when zombies step on it. Cheap but single-use.",
                     cactus: "Versatile plant that can target both ground and flying zombies with needle projectiles.",
                     chomper: "Devours zombies whole but needs time to chew. Vulnerable while eating.",
-                    lightningreed: "Shoots chain lightning that jumps between nearby zombies for area damage.",
-                    pumpkin: "Protective shell that can be placed over other plants to give them extra armor."
+                    lightningreed: "Shoots chain lightning that jumps between nearby zombies for area damage."
                 };
                 
                 this.zombieDescriptions = {
@@ -1289,16 +1284,6 @@
                             1: { health: 300, damage: 25, fireRate: 2000, chainCount: 2, emoji: '⚡' },
                             2: { health: 450, damage: 40, fireRate: 1800, chainCount: 3, emoji: '🌩️' },
                             3: { health: 600, damage: 60, fireRate: 1500, chainCount: 4, emoji: '⛈️' }
-                        }
-                    },
-                    pumpkin: {
-                        cost: 75,
-                        maxLevel: 3,
-                        isShell: true,
-                        levels: {
-                            1: { health: 4000, emoji: '🎃' },
-                            2: { health: 7000, emoji: '🎃' },
-                            3: { health: 12000, emoji: '👻' }
                         }
                     }
                 };
@@ -1975,18 +1960,13 @@
                     return;
                 }
                 
-                // Allow pumpkin shells to be placed over other plants, and ground plants over non-ground plants
+                // Allow ground plants over non-ground plants
                 if (existingPlant) {
-                    // Block placement if trying to place non-shell over existing plant, 
-                    // or if trying to place non-ground over existing ground plant
-                    if (!plantType.isShell && !plantType.isGround) {
+                    if (!plantType.isGround) {
                         return; // Regular plants can't be placed over other plants
                     }
                     if (plantType.isGround && existingPlant.isGround) {
                         return; // Can't place ground plant over another ground plant
-                    }
-                    if (plantType.isShell && existingPlant.isShell) {
-                        return; // Can't place shell over another shell
                     }
                 }
                 
@@ -2008,22 +1988,10 @@
                     lastFreeze: 0,
                     lastMagnet: 0,
                     isGround: plantType.isGround || false,
-                    isShell: plantType.isShell || false,
                     element: this.createPlantElement(levelStats.emoji, level, cell)
                 };
                 
-                // For pumpkin shells, store as shell but don't replace existing plant
-                if (plantType.isShell && existingPlant) {
-                    // Store shell separately and don't overwrite the main plant
-                    const shellKey = `${row},${col}_shell`;
-                    this.plants.set(shellKey, plant);
-                    
-                    // Add visual shell effect to existing plant
-                    existingPlant.shell = plant;
-                    existingPlant.element.style.border = '3px solid #FF8C00';
-                } else {
-                    this.plants.set(key, plant);
-                }
+                this.plants.set(key, plant);
                 
                 if (this.selectedPlant === 'cherrybomb') {
                     this.soundEngine.cherryBombFuse();
@@ -2394,20 +2362,15 @@
                     const col = Math.floor((zombie.x - 20) / ((window.innerWidth - 40) / 9));
                     const plantKey = `${zombie.row},${col}`;
                     const plant = this.plants.get(plantKey);
-                    const shellKey = `${zombie.row},${col}_shell`;
-                    const shell = this.plants.get(shellKey);
                     
                     if (plant && zombie.flying && plant.isGround) {
                         return;
                     }
                     
-                    // Prioritize attacking shell if it exists, otherwise attack main plant
-                    const targetPlant = shell || plant;
-                    
-                    if (targetPlant && !zombie.eating && !targetPlant.isGround) {
+                    if (plant && !zombie.eating && !plant.isGround) {
                         zombie.eating = true;
-                        zombie.target = targetPlant;
-                        zombie.targetKey = shell ? shellKey : plantKey;
+                        zombie.target = plant;
+                        zombie.targetKey = plantKey;
                     }
                     
                     if (zombie.eating && zombie.target) {
@@ -2421,15 +2384,6 @@
                         if (zombie.target.health <= 0) {
                             zombie.target.element.remove();
                             this.plants.delete(zombie.targetKey);
-                            
-                            // If shell was destroyed, remove shell reference from main plant
-                            if (zombie.targetKey.includes('_shell')) {
-                                const mainPlant = this.plants.get(plantKey);
-                                if (mainPlant && mainPlant.shell) {
-                                    mainPlant.shell = null;
-                                    mainPlant.element.style.border = '';
-                                }
-                            }
                             
                             zombie.eating = false;
                             zombie.target = null;
